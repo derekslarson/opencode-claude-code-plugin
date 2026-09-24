@@ -211,6 +211,69 @@ test("a CLI tool that succeeded is not flagged", async () => {
   assert.deepEqual(result.result.metadata, {})
 })
 
+const mcpToolName = "mcp__mcp-gateway__android_list_devices"
+
+const mcpToolResult = {
+  type: "user",
+  session_id: "fake-session",
+  message: {
+    role: "user",
+    content: [{ type: "tool_result", tool_use_id: "toolu_mcp", content: "[]" }],
+  },
+}
+
+/**
+ * The same MCP round trip in both shapes the CLI emits: `stream_event`
+ * blocks under --include-partial-messages, and whole `assistant` messages
+ * without it. The plugin records the call in a separate place for each.
+ */
+const mcpToolTurns = {
+  streamed: [assistantToolUse("toolu_mcp", mcpToolName), blockStop(), mcpToolResult, endTurn],
+  "whole-message": [
+    {
+      type: "assistant",
+      session_id: "fake-session",
+      message: {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "toolu_mcp", name: mcpToolName, input: {} }],
+        stop_reason: "tool_use",
+      },
+    },
+    mcpToolResult,
+    {
+      type: "assistant",
+      session_id: "fake-session",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "no devices" }],
+        stop_reason: "end_turn",
+      },
+    },
+  ],
+}
+
+for (const [form, turn] of Object.entries(mcpToolTurns)) {
+  for (const hostApi of ["v1", "v2"] as const) {
+    test(`a CLI-run MCP tool's result carries the same name as its call (${form}, ${hostApi})`, async () => {
+      const parts = await streamParts([init, ...turn, successResult], { hostApi })
+
+      const call = parts.find(
+        (part) => part.type === "tool-call" && part.toolCallId === "toolu_mcp",
+      )
+      const result = parts.find(
+        (part) => part.type === "tool-result" && part.toolCallId === "toolu_mcp",
+      )
+      assert.ok(call)
+      assert.ok(result)
+      assert.equal(call.toolName, "mcp-gateway_android_list_devices")
+      // opencode 2 fails the turn with "Tool result name changed" when these
+      // differ; the result used to carry the raw `mcp__…` name.
+      assert.equal(result.toolName, call.toolName)
+      assert.equal(result.result.title, mcpToolName)
+    })
+  }
+}
+
 test("a failing result subtype ends the turn as an error, naming the subtype", async () => {
   const parts = await streamParts([
     init,
