@@ -3636,9 +3636,12 @@ export class ClaudeCodeLanguageModel implements LanguageModelV3 {
           // forward Claude CLI's tool_result for them (would short-circuit
           // opencode's execute).
           const skipResultForIds = new Set<string>()
+          // `toolName` is the mapped name the tool-call part carried; the
+          // tool-result must repeat it, since opencode 2 rejects a result
+          // whose name differs from its call's.
           const toolCallsById = new Map<
             string,
-            { id: string; name: string; input: unknown }
+            { id: string; name: string; toolName: string; input: unknown }
           >()
 
           let resultMeta: {
@@ -4381,6 +4384,7 @@ export class ClaudeCodeLanguageModel implements LanguageModelV3 {
                     toolCallsById.set(tc.id, {
                       id: tc.id,
                       name: tc.name,
+                      toolName: mappedName,
                       input: parsedInput,
                     })
                     if (!executed) skipResultForIds.add(tc.id)
@@ -4609,6 +4613,7 @@ export class ClaudeCodeLanguageModel implements LanguageModelV3 {
                       toolCallsById.set(block.id, {
                         id: block.id,
                         name: block.name,
+                        toolName: mappedName,
                         input: parsedInput,
                       })
                       if (!executed) skipResultForIds.add(block.id)
@@ -4718,7 +4723,7 @@ export class ClaudeCodeLanguageModel implements LanguageModelV3 {
                     controller.enqueue({
                       type: "tool-result",
                       toolCallId: block.tool_use_id,
-                      toolName: toolCall.name,
+                      toolName: toolCall.toolName,
                       result: {
                         output: resultText,
                         title: toolCall.name,
